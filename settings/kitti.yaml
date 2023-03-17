@@ -1,0 +1,19 @@
+%YAML:1.0
+
+imageHeight: 376
+imageWidth:  1240
+
+cameraMatrix: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [718.856, 0, 607.1928, 0, 718.856, 185.2157, 0, 0, 1]
+
+distCoeffs: !!opencv-matrix
+   rows: 4
+   cols: 1
+   dt: d
+   data: [0.0, 0.0, 0.0, 0.0]
+
+LKThresh: 0.7
+ReprojectThresh: 0.5
