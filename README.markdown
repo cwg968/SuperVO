@@ -63,6 +63,6 @@ Download the dataset (grayscale images) from http://www.cvlibs.net/datasets/kitt
 ## TODO
 1. The next step is fixing optimize problems, I use threads to make a optimizer, but it doesn't seem to works well. I will attempt to use deeplearning-based backend optimization methods.
 2. Add a IMU to the system.
-3. Solve the problem of map point fusion.
+3. Solve the problem of map points fusion.
 
-This repo is a personal project that helps me better understand SLAM. I borrowed the name of "SuperPoint", although its performance and accuracy did not reach the level of "super". Maybe one day I will make a real "SuperVO". 
+This repo is a personal project that helps me understand SLAM better. I borrowed the name of "SuperPoint", although its performance and accuracy did not reach the level of "super". Maybe one day I will make a real "SuperVO". 
