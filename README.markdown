@@ -6,6 +6,10 @@ I refactor the backbone of SuperPoint using TensorRT， and use `C++` to rewrite
 
 Tested on a custom dataset `848 * 480`. The inference time on `NIVDIA 1050ti` is 31ms per frame. So it can be used in real scenes to run in real time at `30fps`.
 
+<image src="assets/hjl1.gif">
+<image src="assets/hjl2.gif">
+<image src="assets/hjl3.gif">
+
 ## Dependencies
 ### C++11 Compiler
 I use the new thread and chrono functionalities of C++11.
