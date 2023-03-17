@@ -4,8 +4,7 @@ SuperVO is a stereo visual odometry based on optical flow using the SuperPoint f
 
 I refactor the backbone of SuperPoint using TensorRT， and use `C++` to rewrite the forward and post-processing part of the algorithm in the original code. In the `descriptor` part, `LibTorch` is used to rewrite the post-processing code of the descriptor, because some algorithms in torch are too complicated and inefficient to use C++ to rewrite.
 
-Tested on a custom dataset `848 * 480`. The inference time on `NIVDIA 1050ti` is 31ms per frame. So it can be used in real scenes to run in real time at `30fps`. It can be seen from the dynamic diagram, in the case of large-scale scenes and severe camera shakes, the robustness and tracking stability of SuperPoint feature points are better than ORB feature.
-The green points are feature points extract from the keyframe, while the red points are feature points which can be tracked in current frame.
+Test on a custom dataset `848 * 480`. Inference on `NIVDIA 1050ti` can reach 30ms per frame. So it can run in real time at `30fps`. It can be seen from the dynamic diagram, in the case of large-scale scenes and severe camera shakes, the robustness and tracking stability of SuperPoint feature points are better than ORB feature.The green points are feature points extract from the keyframe, while the red points are feature points which can be tracked in current frame.
 
 <image src="assets/hjl1.gif">
 <image src="assets/hjl2.gif">
