@@ -27,6 +27,7 @@ namespace superVO
         std::cout << mInfoType << "        Constract world key frame       " << std::endl;
         std::cout << mInfoType << "----------------------------------------" << std::endl;
         std::cout << mInfoType << imageLeftFile << std::endl;
+        std::cout << mInfoType << imageRightFile << std::endl;
 
         mImgFile = imageLeftFile;
         mTimeStamp = timeStamp;
@@ -109,6 +110,7 @@ namespace superVO
         std::cout << mInfoType << "           Get a new key frame          " << std::endl;
         std::cout << mInfoType << "----------------------------------------" << std::endl;
         std::cout << mInfoType << imageLeftFile << std::endl;
+        std::cout << mInfoType << imageRightFile << std::endl;
 
         mImgFile = imageLeftFile;
         mTimeStamp = timeStamp;
@@ -270,7 +272,7 @@ namespace superVO
             {
                 mcountGood++;
                 mkpts.emplace_back(cv::Point2i(kPts[i].x, kPts[i].y));
-                cv::circle(mDrawnImg, cv::Point2i(kPts[i].x, kPts[i].y), 1, cv::Scalar(0, 255, 0), 2);
+                // cv::circle(mDrawnImg, cv::Point2i(kPts[i].x, kPts[i].y), 1, cv::Scalar(0, 255, 0), 2);
                 // cv::circle(mDrawnImg, cv::Point2i(refPts[i].x, refPts[i].y), 1, cv::Scalar(0, 255, 0), 2);
             }
         }
@@ -309,7 +311,7 @@ namespace superVO
                 goodkpts.emplace_back(mkpts[i]);
                 goodkptsRight.emplace_back(mkptsRight[i]);
                 cv::circle(mDrawnImg, cv::Point2i(mkpts[i].x, mkpts[i].y), 1, cv::Scalar(0, 255, 0), 2);
-                // cv::circle(mRightImg, cv::Point2i(mkptsRight[i].x, mkptsRight[i].y), 1, cv::Scalar(0, 255, 0), 2);
+                cv::circle(mRightImg, cv::Point2i(mkptsRight[i].x, mkptsRight[i].y), 1, cv::Scalar(0, 255, 0), 2);
             }
         }
         mkpts.clear();
@@ -430,11 +432,11 @@ namespace superVO
         A.row(1) = kp1.y * P1.row(2) - P1.row(1);
         A.row(2) = kp2.x * P2.row(2) - P2.row(0);
         A.row(3) = kp2.y * P2.row(2) - P2.row(1);
+
         cv::Mat u,w,vt;
         cv::SVD::compute(A, w, u, vt, cv::SVD::MODIFY_A | cv::SVD::FULL_UV);
         x3D = vt.row(3).t();
         x3D = x3D.rowRange(0,3) / x3D.at<float>(3);//  转换成非齐次坐标  归一化
-
     }
 
 
@@ -451,7 +453,7 @@ namespace superVO
         {
             cv::Mat x;
             Triangulate(pixel2cam(mkpts[i], mK), pixel2cam(mkptsRight[i], mK), T0, mExtrinsic, x);
-            if(x.at<float>(2) < 0 || x.at<float>(2) > 30)
+            if(x.at<float>(2) < 0)
             {
                 mTriangulateSuccess.emplace_back(false);
                 continue;

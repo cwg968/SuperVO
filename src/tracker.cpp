@@ -55,6 +55,7 @@ namespace superVO
         {
             std::string lastFrameFile = mDataLoader->lastFrame();
             std::string currentFrameFile = mDataLoader->nextLeftFrame();
+            std::string lastFrameFileRight = mDataLoader->lastFrameRight();
             std::string currentFrameFileRight = mDataLoader->nextRightFrame();
             auto t1 = std::chrono::steady_clock::now();
 
@@ -78,7 +79,7 @@ namespace superVO
                 else
                 {
                     t1 = std::chrono::steady_clock::now(); 
-                    trackKeyFrame(lastFrameFile, currentFrameFile, currentFrameFileRight);
+                    trackKeyFrame(lastFrameFile, currentFrameFile, lastFrameFileRight);
                     t2 = std::chrono::steady_clock::now(); 
                     std::cout << mInfoType << "Track keyframe time used: " << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count() << std::endl;
                 }
@@ -86,7 +87,7 @@ namespace superVO
             else
             {
                 t1 = std::chrono::steady_clock::now(); 
-                trackKeyFrame(lastFrameFile, currentFrameFile, currentFrameFileRight);
+                trackKeyFrame(lastFrameFile, currentFrameFile, lastFrameFileRight);
                 auto t2 = std::chrono::steady_clock::now(); 
                 std::cout << mInfoType << "Track keyframe time used: " << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count() << std::endl;                
             }

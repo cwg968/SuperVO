@@ -162,8 +162,6 @@ namespace superVO
         // std::vector<cv::Point3f> refPts3D = mKeyFrame->getPts3D();
         std::vector<cv::Point2f> goodfpts;
         // draw keypoints
-        auto t1 = refPts3D.size();
-        auto t2 = mfpts.size();
         for(int i = 0; i < mfpts.size(); i++)
         {
             if(mSuccessSingle[i] && mRansacStatus[i])

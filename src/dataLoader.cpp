@@ -7,18 +7,34 @@
 
 namespace superVO
 {
-    dataLoader::dataLoader(std::string dataPath, std::string settingPath)
+    dataLoader::dataLoader(std::string settingPath)
     {
         cv::FileStorage settings(settingPath, cv::FileStorage::READ);
         settings["cameraMatrix"] >> mK;
         settings["distCoeffs"] >> mD;
+        settings["extrinsic"] >> mextrinsic;
         settings["imageHeight"] >> mINPUT_H;
         settings["imageWidth"] >> mINPUT_W;
         settings["LKThresh"] >> mLKTHRESH;
         settings["ReprojectThresh"] >> mReprojectThresh;
         settings.release();
+    }
 
-        loadExtrinsic(dataPath);
+    dataLoader::dataLoader(std::string settingPath, std::string dataPath)
+    {
+        cv::FileStorage settings(settingPath, cv::FileStorage::READ);
+        settings["cameraMatrix"] >> mK;
+        settings["distCoeffs"] >> mD;
+        settings["extrinsic"] >> mextrinsic;
+        settings["imageHeight"] >> mINPUT_H;
+        settings["imageWidth"] >> mINPUT_W;
+        settings["LKThresh"] >> mLKTHRESH;
+        settings["ReprojectThresh"] >> mReprojectThresh;
+        settings.release();
+        std::cout << mInfoType << "Camera Intrinsic: " << std::endl << mK << std::endl;
+        std::cout << mInfoType << "Camera Entrinsic: " << std::endl << mextrinsic << std::endl;
+
+        // loadExtrinsic(dataPath);
         loadImages(dataPath);
     }
 
@@ -60,6 +76,11 @@ namespace superVO
     std::string dataLoader::lastFrame()
     {
         return mimageLeft[mlastFrameId];
+    }
+
+    std::string dataLoader::lastFrameRight()
+    {
+        return mimageRight[mlastFrameId];
     }
 
     std::string dataLoader::nextLeftFrame()
@@ -120,11 +141,14 @@ namespace superVO
 
     void dataLoader::loadImages(std::string path)
     {
-        std::ifstream f;
+        std::ifstream fTime;
+        std::ifstream fImage;
         std::string timeStampPath = path + "times.txt";
+        std::string imagePath = path + "rgb.txt";
         std::cout << mInfoType << "path: " << path << std::endl;
-        f.open(timeStampPath.c_str());
-        if(f.is_open())
+        fTime.open(timeStampPath.c_str());
+        fImage.open(imagePath.c_str());
+        if(fTime.is_open())
         {
             std::cout << mInfoType << "times.txt loaded success!" << std::endl;
         }
@@ -133,25 +157,40 @@ namespace superVO
             std::cout << mInfoType << "times.txt loaded failed!" << std::endl;
             exit(1);
         }
-        
-        boost::format fmt("%s/image_%d/%06d.png");
-        int imageNum = 0;
 
-        while(!f.eof())
+        if(fImage.is_open())
         {
-            std::string s;
-            std::getline(f,s);
-            if(!s.empty())
+            std::cout << mInfoType << "rgb.txt loaded success!" << std::endl;
+        }
+        else
+        {
+            std::cout << mInfoType << "rgb.txt loaded failed!" << std::endl;
+            exit(1);
+        }
+        
+
+        while(!fTime.eof())
+        {
+            std::string sTime;
+            std::string sImage;
+            std::getline(fTime,sTime);
+            std::getline(fImage, sImage);
+            if(!sTime.empty())
             {
                 std::stringstream ss;
-                ss << s;
+                ss << sTime;
                 double t;
-                std::string imgLeft, imgRight;
                 ss >> t;
                 mtimeStamps.emplace_back(t);
-                mimageLeft.emplace_back((fmt % path % 0 % imageNum).str());
-                mimageRight.emplace_back((fmt % path % 1 % imageNum).str());
-                imageNum++;
+            }
+            if(!sImage.empty())
+            {
+                std::stringstream ss;
+                ss << sImage;
+                std::string imgLeft;
+                ss >> imgLeft;
+                mimageLeft.emplace_back(path + "/image_0/" + imgLeft);
+                mimageRight.emplace_back(path + "/image_1/" + imgLeft);
             }
         }
     }
