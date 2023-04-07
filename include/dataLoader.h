@@ -27,7 +27,8 @@ namespace superVO
             std::string mInfoType = "[DATALOADER]-->";
 
         public:
-            dataLoader(std::string dataPath, std::string settingPath);
+            dataLoader(std::string settingPath);
+            dataLoader(std::string settingPath, std::string dataPath);
             cv::Mat K();
             cv::Mat D();
             cv::Mat extrisic();
@@ -36,9 +37,11 @@ namespace superVO
             float LKTHRESH();
             float ReprojectThresh();
             std::string lastFrame();
+            std::string lastFrameRight();
             std::string nextLeftFrame();
             std::string nextRightFrame();
             double getCurFrameTime();
+            double getLastFrameTime();
             ~dataLoader();
 
         private:

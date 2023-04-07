@@ -99,6 +99,11 @@ namespace superVO
         return mtimeStamps[mcurrentFrameId];
     }
 
+    double dataLoader::getLastFrameTime()
+    {
+        return mtimeStamps[mlastFrameId];
+    }
+
     void dataLoader::loadExtrinsic(std::string path)
     {
         std::ifstream fin(path + "calib.txt");

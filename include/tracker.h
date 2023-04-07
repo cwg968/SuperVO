@@ -54,6 +54,7 @@ namespace superVO
         void track();
         void trackFrame();
         void trackKeyFrame(std::string pLastFrame, std::string pCurFrame, std::string pCurFrameRight);
+        void waitTime(double lastTime, double curTime, double trackTime);
         ~tracker();
     };
     
