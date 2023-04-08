@@ -39,16 +39,12 @@ namespace superVO
 
     void tracker::trackFrame()
     {
-        float reprojectError = mFrameCore->reproject();
-        std::cout << " / " << mDataLoader->ReprojectThresh() * mKeyFrameCore->getPts3D().size() << std::endl;
-        std::cout << mInfoType << "ReprojectError: " << std::sqrt(reprojectError / mFrameCore->getPts3D().size()) << std::endl;
-
         mFrameSE3.emplace_back(mFrameCore->getSE3());
         
         // save pose as tum format
         std::vector<double> currentFramePose = mFrameCore->getPose();
         mFout << std::fixed << currentFramePose[0] << " " << currentFramePose[1] << " " << currentFramePose[2] << " " << currentFramePose[3] << " " << currentFramePose[4] << " " << currentFramePose[5] << " " << currentFramePose[6] << " " << currentFramePose[7] << std::endl;
-        std::cout << mInfoType << "Pose: " << std::fixed << currentFramePose[0] / 1e9 << " " << currentFramePose[1] << " " << currentFramePose[2] << " " << currentFramePose[3] << " " << currentFramePose[4] << " " << currentFramePose[5] << " " << currentFramePose[6] << " " << currentFramePose[7] << std::endl;
+        std::cout << mInfoType << "Pose: " << std::fixed << currentFramePose[0] << " " << currentFramePose[1] << " " << currentFramePose[2] << " " << currentFramePose[3] << " " << currentFramePose[4] << " " << currentFramePose[5] << " " << currentFramePose[6] << " " << currentFramePose[7] << std::endl;
         cv::imshow(mWindowName, mFrameCore->getDrawnImage());
         cv::waitKey(1);        
     }
@@ -61,7 +57,7 @@ namespace superVO
             std::string currentFrameFile = mDataLoader->nextLeftFrame();
             std::string lastFrameFileRight = mDataLoader->lastFrameRight();
             std::string currentFrameFileRight = mDataLoader->nextRightFrame();
-
+            
             double trackTime;
             double lastTime = mDataLoader->getLastFrameTime();
             double curTime = mDataLoader->getCurFrameTime();
@@ -73,20 +69,24 @@ namespace superVO
             if(mFrameCore->getGoodPtsNum() >= mDataLoader->LKTHRESH() * mKeyFrameCore->mkpts.size())
             {
                 mFrameCore->updateFramePose();
+                float reprojectError = mFrameCore->reproject();
+                
+                auto t2 = std::chrono::steady_clock::now(); 
+                std::cout << " / " << mDataLoader->ReprojectThresh() * mKeyFrameCore->getPts3D().size() << std::endl;
+                trackTime = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+                std::cout << mInfoType << "Track frame time used: " << int(trackTime) << std::endl;
                 
                 if(mFrameCore->getPts3D().size() >= mDataLoader->ReprojectThresh() * mKeyFrameCore->getPts3D().size())
                 {
+                    std::cout << mInfoType << "ReprojectError: " << std::sqrt(reprojectError / mFrameCore->getPts3D().size()) << std::endl;
                     trackFrame();
-                    auto t2 = std::chrono::steady_clock::now(); 
-                    trackTime = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
-                    std::cout << mInfoType << "Track frame time used: " << int(trackTime) << std::endl;
                     waitTime(lastTime, curTime, trackTime);
                 }
                 else
                 {
                     t1 = std::chrono::steady_clock::now(); 
                     trackKeyFrame(lastFrameFile, currentFrameFile, lastFrameFileRight);
-                    auto t2 = std::chrono::steady_clock::now(); 
+                    t2 = std::chrono::steady_clock::now(); 
                     trackTime = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
                     std::cout << mInfoType << "Track keyframe time used: " << int(trackTime) << std::endl;
                     waitTime(lastTime, curTime, trackTime);
@@ -99,7 +99,7 @@ namespace superVO
                 auto t2 = std::chrono::steady_clock::now(); 
                 trackTime = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
                 std::cout << mInfoType << "Track keyframe time used: " << int(trackTime) << std::endl;  
-                waitTime(lastTime, curTime, trackTime);              
+                waitTime(lastTime, curTime, trackTime);            
             }
         }
     }
@@ -118,7 +118,7 @@ namespace superVO
         // save pose as tum format
         std::vector<double> keyFramePose = mKeyFrameCore->getPose();
         mFout << std::fixed << keyFramePose[0] << " " << keyFramePose[1] << " " << keyFramePose[2] << " " << keyFramePose[3] << " " << keyFramePose[4] << " " << keyFramePose[5] << " " << keyFramePose[6] << " " << keyFramePose[7] << std::endl;
-        std::cout << mInfoType << "Pose: " << std::fixed << keyFramePose[0] / 1e9 << " " << keyFramePose[1] << " " << keyFramePose[2] << " " << keyFramePose[3] << " " << keyFramePose[4] << " " << keyFramePose[5] << " " << keyFramePose[6] << " " << keyFramePose[7] << std::endl;
+        std::cout << mInfoType << "Pose: " << std::fixed << keyFramePose[0] << " " << keyFramePose[1] << " " << keyFramePose[2] << " " << keyFramePose[3] << " " << keyFramePose[4] << " " << keyFramePose[5] << " " << keyFramePose[6] << " " << keyFramePose[7] << std::endl;
 
         cv::imshow(mWindowName, mKeyFrameCore->getDrawnImage());
         cv::waitKey(1);
@@ -126,7 +126,7 @@ namespace superVO
 
     void tracker::waitTime(double lastTime, double curTime, double trackTime)
     {
-        int sleepTime = curTime - lastTime - trackTime * 1e6;
+        int sleepTime = curTime - lastTime - trackTime;
         if(sleep > 0)
         {
            std::this_thread::sleep_for(std::chrono::nanoseconds(sleepTime)); 
