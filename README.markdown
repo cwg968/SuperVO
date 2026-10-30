@@ -55,8 +55,7 @@ build/superVO --dataset /path/to/KITTI/sequences/00 --format kitti --output resu
 build-ba/superVIO --dataset /path/to/EuRoC/sequence \
   --backend tensorrt --engine build-ba/euroc.engine \
   --estimator window --observation-noise uniform \
-  --window-states 10 --window-landmarks 300 --window-iterations 6 \
-  --window-feedback resolve --window-audit-every 0 --output results/vio
+  --window-feedback resolve --output results/vio
 ```
 
 `superVIO` 默认启用 IMU，但后端默认值仍为 `eskf`；使用滑窗时需显式传入
@@ -75,7 +74,6 @@ TUM VI 使用 `--format tumvi` 与 512×512 引擎。KITTI 无 IMU；
 build-ba/superVIO --dataset /path/to/EuRoC/sequence \
   --backend tensorrt --engine build-ba/euroc.engine \
   --estimator window --observation-noise uniform \
-  --window-states 10 --window-landmarks 300 --window-iterations 6 \
   --window-feedback resolve --viewer --realtime --output results/vio-viewer
 ```
 
@@ -92,6 +90,107 @@ build-ba/superVIO --dataset /path/to/EuRoC/sequence \
 渲染线程只接收只读快照，显示帧允许丢弃；缓存上限为 50,000 个地图点、50,000 个轨迹采样和
 2,000 个关键帧。`--viewer` 不改变估计方程，但复制和渲染会占用资源；耗时面板不含显示开销。
 默认不打开窗口，服务器或无显示环境可直接运行原命令。
+
+## 启动参数完整说明
+
+两个入口使用同一套 34 个长参数，`-h` 是 `--help` 的别名。
+**只有 `--dataset` 必填**；`--help` 不要求数据集。
+`superVO` 默认关闭 IMU，`superVIO` 默认开启 IMU，其他默认值相同。
+参数采用 `--参数 值` 或无值开关形式，不使用 `--参数=值`。
+
+### 必要性审查与推荐写法
+
+- 日常运行保留输入、输出、所需推理后端与算法模式即可，不需要把所有参数写在命令中。
+- TensorRT 需同时指定 `--backend tensorrt --engine FILE`；CPU 默认无需这两个参数。
+  GPU 引擎已经包含模型权重，运行时不能再通过 `--weights` 更换它。
+- 使用 `superVIO` 不必再写 `--imu`；KITTI 没有 IMU 输入，使用 `superVO`。
+  当前没有关闭 `superVIO` 默认 IMU 的反向开关。
+- 推荐滑窗仍需显式写 `--estimator window --observation-noise uniform --window-feedback resolve`。
+  **程序默认值仍是 `eskf`、`patch`、`off`**，不能因省略这些参数而假定启用了推荐配置。
+- `--window-states 10 --window-landmarks 300 --window-iterations 6 --window-audit-every 0`
+  都等于默认值，正常命令可以省略。需要冻结完整配置或调参时再显式填写。
+- 前端阈值、两类 BA 预算、审计采样与同步回环均保留为进阶控制项，普通运行无需调整。
+  它们有实际用途，没有为缩短命令而删除复现或诊断能力。
+- `--viewer` 和 `--realtime` 分别控制显示与播放节奏，功能独立；
+  `--viewer-no-wait` 是窗口关闭策略，`--loop-sync` 是回环调度策略，均不能替代其功能开关。
+
+### 输入、输出与数据检查
+
+| 参数 | 默认值／取值 | 含义与生效条件 | 是否需要填写 |
+|---|---|---|---|
+| `--dataset PATH` | 无默认值 | 数据集序列目录；EuRoC/TUM VI 也接受 `mav0`。相对路径以当前工作目录为准。 | 必填，`--help` 除外 |
+| `--format NAME` | `auto`；`auto/euroc/tumvi/kitti` | 选择输入适配器；auto 根据目录和标定文件检测格式。 | 通常省略，需明确输入格式时填写 |
+| `--output DIR` | `results/run` | 轨迹、日志和运行配置目录。`--inspect` 不写输出。 | 可省略；多次运行建议分别指定新目录 |
+| `--image-scale FACTOR` | `1`；`0 < FACTOR <= 1` | 缩小图像并按实际像素中心更新内参，米制基线不变；缩放后每边至少 8 像素。改变后需匹配新的 TensorRT 输入尺寸。 | 需要缩放时填写 |
+| `--kitti-cameras MODE` | `auto`；`auto/gray/color` | KITTI 的左右相机选择；gray 为 image_0/1，color 为 image_2/3，auto 优先已有灰度双目。显式 gray/color 只允许 KITTI。 | KITTI 需固定相机组时填写 |
+| `--inspect` | 关闭，无值开关 | 校验数据清单、标定并读取首对图像后退出；IMU 开启时也读取 IMU 标定和输入。不会加载模型、创建输出或启动估计器／窗口。 | 仅检查数据时填写 |
+
+`--inspect` 不验证模型、引擎或可视化环境；即使提供相关参数，也不执行它们。
+检查数据通常只需 `superVO --dataset PATH --inspect`；检查 IMU 输入则使用 `superVIO`。
+
+### 推理后端与前端跟踪
+
+| 参数 | 默认值／取值 | 含义与生效条件 | 是否需要填写 |
+|---|---|---|---|
+| `--backend NAME` | `cpu`；`cpu/tensorrt` | SuperPoint 推理后端；TensorRT 需构建时开启 `SUPERVO_WITH_TENSORRT`，失败时不自动退回 CPU。 | 使用 GPU 时必须写 tensorrt |
+| `--weights FILE` | `weights/superpoint_v1.wts` | CPU SuperPoint 权重；仅 CPU 模式生效。路径相对工作目录，不相对可执行文件。 | CPU 使用其他权重或从其他目录启动时填写 |
+| `--engine FILE` | 无默认值 | TensorRT 引擎；需匹配目标设备、SDK 和补零到 8 倍数后的网络尺寸。并非原始权重文件。 | TensorRT 模式必填，CPU 模式不接受 |
+| `--max-points N` | `1000`；`N >= min-inliers` | 每幅关键帧 SuperPoint 检测上限及活动地标预算；不是滑窗后端地标上限，也不保证实际能找到 N 个点。 | 进阶调参，通常省略 |
+| `--min-inliers N` | `20`；`N >= 6` | 初始化、位姿／几何验收所需的最低支持，也传给 BA 的验收门限。降低它可能接受较弱几何。 | 进阶调参，通常省略 |
+| `--keyframe-interval N` | `10`；整数 `N >= 1` | 常规补点与参考刷新检查间隔；点数下降、覆盖不足可提前触发，并非严格每 N 帧建一次关键帧。保留点／模板年龄预算也随该值变化。 | 进阶调参，通常省略 |
+| `--threshold SCORE` | `0.015`；`0 < SCORE < 1` | SuperPoint 检测分数门限；不是描述子距离、LK 误差或 PnP 重投影门限。 | 进阶调参，通常省略 |
+
+### IMU 与双目惯性滑窗
+
+下面的 `window-*` 参数及 `--observation-noise` 仅对开启 IMU 且选择 window 的运行有效。
+ESKF 不使用这些像素级滑窗设置；纯视觉局部 BA 另用 `ba-*` 参数。
+
+| 参数 | 默认值／取值 | 含义与生效条件 | 是否需要填写 |
+|---|---|---|---|
+| `--imu` | superVO 关闭，superVIO 开启；无值开关 | 启用惯性融合，要求标定和连续 IMU 输入；两个入口共享实现。 | superVIO 中冗余；superVO 需要惯性融合时填写 |
+| `--estimator NAME` | `eskf`；`eskf/window` | IMU 估计器；ESKF 为位姿层滤波，window 为像素级紧耦合滑窗。window 需 `SUPERVO_WITH_BA=ON`。二者互斥。 | 推荐滑窗需显式写 window |
+| `--observation-noise MODEL` | `patch`；`uniform/patch` | window 的像素观测噪声；uniform 为 1 px 各向同性，patch 为有界图像梯度协方差工程模型，并非学习网络。 | 推荐显式写 uniform |
+| `--window-states N` | `10`；整数 `8..20` | 滑窗导航状态容量，含受保护参考状态；与前端关键帧间隔不同。 | 默认预算可省略 |
+| `--window-landmarks N` | `300`；`min-inliers..2000` | 后端优化地标容量；不减少前端允许跟踪的点数。 | 默认预算可省略 |
+| `--window-iterations N` | `6`；整数 `1..30` | 每次主求解的迭代上限，可提前终止；不包含 resolve 清理后的额外预算。 | 默认预算可省略 |
+| `--window-feedback MODE` | `off`；`off/prune/resolve` | off 关闭后验反馈；prune 发布后验并清理持续离群观测；resolve 在实际清理后额外求解一次、最多两次迭代，再验收或回滚。 | 推荐显式写 resolve；prune 保留供对照诊断 |
+| `--window-audit-every N` | `0`；整数 `N >= 0` | 只读因子／IMU 权重快照的帧采样间隔；0 关闭，正数生成额外诊断 CSV，不改变求解方程。 | 日常省略；诊断时使用如 20 |
+
+### 纯视觉局部 BA 与可选回环
+
+| 参数 | 默认值／取值 | 含义与生效条件 | 是否需要填写 |
+|---|---|---|---|
+| `--visual-ba MODE` | `none`；`none/local` | 启用纯双目局部 BA；local 需 `SUPERVO_WITH_BA=ON`，不能与 IMU 融合同时使用，应运行 superVO。 | 需要纯视觉 BA 时填写 local |
+| `--ba-keyframes N` | `6`；整数 `2..12` | 纯视觉 BA 的关键帧容量；还可保留一个临时当前状态。只在 local 模式有效。 | 默认预算可省略 |
+| `--ba-landmarks N` | `300`；`min-inliers..2000` | 纯视觉 BA 优化地标容量，只在 local 模式有效。 | 默认预算可省略 |
+| `--ba-iterations N` | `6`；整数 `1..30` | 纯视觉 BA 求解迭代上限，只在 local 模式有效；与 window-iterations 独立。 | 默认预算可省略 |
+| `--loop-closure` | 关闭，无值开关 | 启用独立的重力对齐回环位姿图，需 IMU 和 `SUPERVO_WITH_LOOP=ON`；默认异步，输出局部与全局轨迹分别保存。 | 需要回环时填写 |
+| `--loop-sync` | 关闭，无值开关 | 将回环改为同步处理，便于确定性检查；可能增加前台等待，必须搭配 loop-closure。 | 进阶调度，正常可省略 |
+
+### 显示、播放与运行控制
+
+| 参数 | 默认值／取值 | 含义与生效条件 | 是否需要填写 |
+|---|---|---|---|
+| `--viewer` | 关闭，无值开关 | 打开左目特征与三维地图窗口，需 `SUPERVO_WITH_PANGOLIN=ON` 和可用显示环境；不启用回环。 | 需要实时显示时填写 |
+| `--viewer-no-wait` | 关闭，无值开关 | 输入结束后自动关闭窗口，必须搭配 viewer；默认会保留窗口直到用户关闭。 | 自动运行／无需保留窗口时填写 |
+| `--realtime` | 关闭，无值开关 | 按数据集时间戳等待播放；不保证处理能追上实时，不丢弃处理不过来的输入。与 viewer 独立，暂停恢复不会快进补偿。 | 希望按采集节奏播放时填写 |
+| `--max-frames N` | `0`；整数 `N >= 0` | 限制同步双目输入帧数，0 为全部。限制发生在 IMU 首尾覆盖裁剪前，实际输出可能少于 N。 | 短段检查时填写，完整运行省略 |
+| `--threads N` | `4`；整数 `N >= 1` | OpenCV 的 CPU 线程数；不是总进程线程上限，也不设置 TensorRT batch 或 Ceres 求解线程。 | 需要固定 CPU 资源时填写 |
+| `--overwrite` | 关闭，无值开关 | 允许覆盖已有的已知输出文件；不会清空目录或删除无关文件，建议新运行使用新目录。 | 确实要复用输出目录时填写 |
+| `--help` / `-h` | 无值开关 | 打印当前入口的参数分组、默认值和依赖后退出，不要求 dataset。 | 查看帮助时填写 |
+
+### 启动组合校验
+
+正常运行现在会拒绝显式提供但不生效的组合，而不是悄悄忽略：
+
+- `--engine` 搭配 CPU，或 TensorRT 缺少 engine；TensorRT 模式显式传 `--weights`。
+- 未开启 IMU 却指定 estimator；ESKF／纯视觉模式显式传 window 参数或 observation-noise。
+- 未开启 `--visual-ba local` 却传 ba 参数；纯视觉 BA 与 IMU 同时启用。
+- 缺少 loop-closure 的 loop-sync、缺少 viewer 的 viewer-no-wait。
+- 非 KITTI 输入选择 kitti-cameras gray/color，或参数超出表中的合法范围。
+
+这些检查不改变算法默认值。重复传同一有值参数时，最后一个值生效；
+不认识的参数与缺失值会直接报错。`--inspect` 是数据检查模式，不执行上述推理／显示模块。
 
 ## 输出
 

@@ -44,26 +44,32 @@ void writePose(std::ostream& out, int64_t timestamp, const cv::Matx44d& pose) {
 }
 }
 int runOdometry(const RunOptions& o) {
+    if (!o.inspect) {
 #ifndef SUPERVO_WITH_PANGOLIN
-    if (o.viewer.enabled)
-        throw std::invalid_argument("Viewer requires SUPERVO_WITH_PANGOLIN=ON");
+        if (o.viewer.enabled)
+            throw std::invalid_argument("Viewer requires SUPERVO_WITH_PANGOLIN=ON");
 #endif
-    if (!o.viewer.enabled && !o.viewer.waitAtEnd)
-        throw std::invalid_argument("--viewer-no-wait requires --viewer");
+        if (!o.viewer.enabled && !o.viewer.waitAtEnd)
+            throw std::invalid_argument("--viewer-no-wait requires --viewer");
 #ifndef SUPERVO_WITH_LOOP
-    if (o.loop.enabled)
-        throw std::invalid_argument("Loop closure requires SUPERVO_WITH_LOOP=ON");
+        if (o.loop.enabled)
+            throw std::invalid_argument("Loop closure requires SUPERVO_WITH_LOOP=ON");
 #endif
-    if (o.loop.enabled && !o.imu)
-        throw std::invalid_argument("Gravity-aligned loop closure requires IMU");
-    if (o.stereoBa.enabled && o.imu)
-        throw std::invalid_argument("Pure stereo BA and IMU estimators are mutually exclusive");
-    if (o.vio.window.auditEvery < 0 ||
-        (o.vio.window.auditEvery > 0 && (!o.imu || o.vio.backend != VioBackend::Window)))
-        throw std::invalid_argument(
-            "Window audit requires window VIO and a nonnegative sampling interval");
+        if (o.loop.enabled && !o.imu)
+            throw std::invalid_argument("Gravity-aligned loop closure requires IMU");
+        if (o.stereoBa.enabled && o.imu)
+            throw std::invalid_argument("Pure stereo BA and IMU estimators are mutually exclusive");
+        if (o.vio.window.auditEvery < 0 ||
+            (o.vio.window.auditEvery > 0 && (!o.imu || o.vio.backend != VioBackend::Window)))
+            throw std::invalid_argument(
+                "Window audit requires window VIO and a nonnegative sampling interval");
+        if (o.loop.synchronous && !o.loop.enabled)
+            throw std::invalid_argument("--loop-sync requires --loop-closure");
+    }
     cv::setNumThreads(o.threads);
     StereoDataset dataset(o.dataset, o.format, o.imageScale, o.kittiCameras);
+    if (o.kittiCameras != "auto" && dataset.format() != "kitti")
+        throw std::invalid_argument("--kitti-cameras gray|color requires a KITTI dataset");
     const auto rightFromLeft = dataset.rightFromLeft();
     const auto calibration = dataset.calibration();
     std::optional<ImuDataset> imu;
