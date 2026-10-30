@@ -1,0 +1,10 @@
+/build*/
+/bin/
+/lib/
+/results/
+*.engine
+*.plan
+__pycache__/
+*.pyc
+core
+core.*

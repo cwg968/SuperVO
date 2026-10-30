@@ -1,79 +1,115 @@
-cmake_minimum_required(VERSION 3.16)
-project(demo_superVO)
-
-set(CMAKE_CXX_STANDARD 14)
-set(CMAKE_BUILD_TYPE Debug)
-
-set(Torch_DIR "/home/cwg/libtorch/share/cmake/Torch")
-set(CMAKE_CUDA_COMPILER "/usr/local/cuda-11.6/bin/nvcc")
-list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
-
-find_package(OpenCV 4 REQUIRED)
-find_package(Pangolin REQUIRED)
-find_package(apriltag REQUIRED)
-find_package(Sophus REQUIRED)
-find_package(Torch REQUIRED)
-find_package(realsense2 REQUIRED)
-find_package(G2O REQUIRED)
-find_package(CSparse REQUIRED)
-find_package(Glog REQUIRED)
-
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/lib)
-
-add_library(${PROJECT_NAME}
-            src/trtEngine.cpp
-            src/poseEstimation.cpp
-            src/frame.cpp
-            src/keyFrame.cpp
-            src/mapDrawer.cpp
-            src/tagDetector.cpp
-            src/mapPoint.cpp
-            src/map.cpp
-            src/optimizer.cpp
-            src/dataLoader.cpp
-            src/tracker.cpp)
-
-include_directories(${PROJECT_SOURCE_DIR}/include
-                    ${OpenCV_INCLUDE_DIRS}
-                    ${Pangolin_INCLUDE_DIRS}
-                    ${apriltag_INCLUDE_DIRS}
-                    ${Sophus_INCLUDE_DIRS}
-                    ${realsense2_INCLUDE_DIRS}
-                    ${G2O_INCLUDE_DIRS}
-                    ${CSPARSE_INCLUDE_DIR}
-                    ${GLOG_INCLUDE_DIRS}
-                    "/usr/include/eigen3"
-                    "/usr/local/cuda/include"
-                    "/usr/include/x86_64-linux-gnu/"
-                    "/home/cwg/libtorch/include/torch/csrc/api/include/"
-                    "/home/cwg/libtorch/include/torch/csrc/autograd/"
-                    "/home/cwg/libtorch/include")
-
-link_directories(/usr/local/cuda/lib64)
-link_directories(/usr/lib/x86_64-linux-gnu/)
-
-target_link_libraries(${PROJECT_NAME}
-                        ${OpenCV_LIBS}
-                        ${Pangolin_LIBRARIES}
-                        ${apriltag_LIBS}
-                        ${TORCH_LIBRARIES}
-                        g2o_core g2o_stuff g2o_types_sba g2o_solver_csparse g2o_csparse_extension
-                        Sophus::Sophus
-                        realsense2
-                        nvinfer
-                        cudart
-                        pthread
-                        fmt::fmt
-                        ${CSPARSE_LIBRARY}
-                        ${GLOG_LIBRARIES}
-                        )
-
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin)
-
+cmake_minimum_required(VERSION 3.18)
+project(SuperVO VERSION 0.2.0 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+option(SUPERVO_WITH_TENSORRT "Build the TensorRT 10.x backend (requires CUDA)" OFF)
+option(SUPERVO_WITH_BA "Build independent stereo and stereo-inertial BA backends" OFF)
+option(SUPERVO_WITH_LOOP "Build modular global loop closure" OFF)
+find_package(OpenCV 4 REQUIRED COMPONENTS core imgproc imgcodecs calib3d video dnn features2d)
+find_package(Eigen3 3.3 REQUIRED NO_MODULE)
+# Dependencies point from adapters to algorithms, never back to the runner.
+add_library(supervo_core src/poseEstimation.cpp src/frame.cpp src/stereoMatching.cpp
+                        src/stereoPose.cpp src/motionPrediction.cpp src/sensorTypes.cpp src/imuTypes.cpp)
+target_link_libraries(supervo_core PUBLIC opencv_core opencv_imgproc opencv_calib3d opencv_video)
+add_library(supervo_features src/superPoint.cpp)
+target_link_libraries(supervo_features PUBLIC opencv_core PRIVATE opencv_imgproc opencv_dnn)
+add_library(supervo_inertial src/inertialEstimator.cpp src/inertialInitializer.cpp src/ba/imuPreintegration.cpp)
+target_link_libraries(supervo_inertial PUBLIC supervo_core PRIVATE Eigen3::Eigen)
+if(SUPERVO_WITH_BA OR SUPERVO_WITH_LOOP)
+    find_package(Ceres 2.1 REQUIRED)
+endif()
+if(SUPERVO_WITH_LOOP)
+    find_package(Threads REQUIRED)
+    add_library(supervo_loop_geometry src/loopGeometry.cpp)
+    target_include_directories(supervo_loop_geometry PUBLIC include)
+    target_link_libraries(supervo_loop_geometry PUBLIC supervo_core PRIVATE opencv_features2d)
+    add_library(supervo_posegraph src/globalPoseGraph.cpp)
+    target_include_directories(supervo_posegraph PUBLIC include)
+    target_link_libraries(supervo_posegraph PUBLIC supervo_core PRIVATE Eigen3::Eigen Ceres::ceres)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        target_link_options(supervo_posegraph INTERFACE "LINKER:--disable-new-dtags")
+    endif()
+    add_library(supervo_loop src/loopClosure.cpp)
+    target_include_directories(supervo_loop PUBLIC include)
+    target_link_libraries(supervo_loop PUBLIC supervo_loop_geometry supervo_posegraph PRIVATE Threads::Threads)
+    add_executable(supervo_inspect_loops tools/inspect_loop_edges.cpp)
+    target_link_libraries(supervo_inspect_loops PRIVATE supervo_loop_geometry opencv_imgcodecs)
+endif()
+if(SUPERVO_WITH_BA)
+    add_library(supervo_backend src/ba/windowEstimator.cpp src/ba/windowFeedback.cpp src/ba/windowMarginalization.cpp src/ba/windowAudit.cpp src/ba/stereoBaEstimator.cpp)
+    target_include_directories(supervo_backend PUBLIC include)
+    target_link_libraries(supervo_backend PUBLIC supervo_core PRIVATE supervo_inertial Eigen3::Eigen Ceres::ceres)
+    target_compile_options(supervo_backend PRIVATE -Wall -Wextra -Wpedantic)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        target_link_options(supervo_backend INTERFACE "LINKER:--disable-new-dtags")
+    endif()
+endif()
+add_library(supervo_frontend src/keyFrame.cpp src/localMap.cpp src/templateMatcher.cpp
+                            src/trackingPolicy.cpp src/recoveryPolicy.cpp src/stationaryDetector.cpp src/visualFrontend.cpp src/visualMeasurements.cpp)
+target_link_libraries(supervo_frontend PUBLIC supervo_core supervo_features)
+add_library(supervo_system src/vioEstimator.cpp src/odometry.cpp)
+target_link_libraries(supervo_system PUBLIC supervo_frontend PRIVATE supervo_inertial)
+if(SUPERVO_WITH_BA)
+    target_link_libraries(supervo_system PRIVATE supervo_backend)
+    target_compile_definitions(supervo_system PRIVATE SUPERVO_WITH_BA)
+endif()
+add_library(supervo_runtime src/stereoDataset.cpp src/imuDataset.cpp src/tracker.cpp)
+target_link_libraries(supervo_runtime PUBLIC supervo_system PRIVATE opencv_imgcodecs)
+if(SUPERVO_WITH_LOOP)
+    target_link_libraries(supervo_runtime PRIVATE supervo_loop)
+    target_compile_definitions(supervo_runtime PRIVATE SUPERVO_WITH_LOOP)
+endif()
+foreach(module supervo_inertial supervo_core supervo_features supervo_frontend supervo_system supervo_runtime)
+    target_include_directories(${module} PUBLIC include ${OpenCV_INCLUDE_DIRS})
+    target_compile_options(${module} PRIVATE -Wall -Wextra -Wpedantic)
+endforeach()
+if(SUPERVO_WITH_TENSORRT)
+    set(TENSORRT_ROOT "$ENV{HOME}/Lib/TensorRT-10.13.3.9-cuda13.0" CACHE PATH "TensorRT SDK root")
+    find_package(CUDAToolkit REQUIRED)
+    find_path(TENSORRT_INCLUDE_DIR NvInfer.h HINTS ${TENSORRT_ROOT}/include PATH_SUFFIXES x86_64-linux-gnu REQUIRED)
+    find_library(TENSORRT_LIBRARY nvinfer HINTS ${TENSORRT_ROOT}/lib ${TENSORRT_ROOT}/lib64 REQUIRED)
+    # Recent headers define NV_TENSORRT_MAJOR through TRT_MAJOR_ENTERPRISE.
+    file(READ "${TENSORRT_INCLUDE_DIR}/NvInferVersion.h" TRT_VERSION_HEADER)
+    function(tensorrt_component component output)
+        set(symbol "NV_TENSORRT_${component}")
+        foreach(attempt RANGE 0 4)
+            string(REGEX MATCH "(^|\n)[ \t]*#[ \t]*define[ \t]+${symbol}[ \t]+([A-Za-z0-9_]+)" definition "${TRT_VERSION_HEADER}")
+            if(NOT definition)
+                message(FATAL_ERROR "Cannot resolve TensorRT version macro ${symbol}")
+            endif()
+            set(symbol "${CMAKE_MATCH_2}")
+            if(symbol MATCHES "^[0-9]+$")
+                set(${output} "${symbol}" PARENT_SCOPE)
+                return()
+            endif()
+        endforeach()
+        message(FATAL_ERROR "TensorRT version macro aliases could not be resolved")
+    endfunction()
+    tensorrt_component(MAJOR TRT_MAJOR)
+    tensorrt_component(MINOR TRT_MINOR)
+    if(NOT TRT_MAJOR STREQUAL "10")
+        message(FATAL_ERROR "The migrated backend requires TensorRT 10.x; validated with 10.13.3 / CUDA 13.0")
+    endif()
+    message(STATUS "TensorRT ${TRT_MAJOR}.${TRT_MINOR}: ${TENSORRT_LIBRARY}")
+    target_sources(supervo_features PRIVATE src/trtEngine.cpp)
+    target_compile_definitions(supervo_features PRIVATE SUPERVO_WITH_TENSORRT)
+    target_include_directories(supervo_features SYSTEM PRIVATE ${TENSORRT_INCLUDE_DIR})
+    target_link_libraries(supervo_features PRIVATE CUDA::cudart ${TENSORRT_LIBRARY})
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        # TensorRT dlopens its builder resource from libnvinfer. DT_RUNPATH on
+        # the executable is not transitive; DT_RPATH keeps this local SDK usable
+        # without requiring a process/global LD_LIBRARY_PATH override.
+        target_link_options(supervo_features INTERFACE "LINKER:--disable-new-dtags")
+    endif()
+    add_executable(supervo_build_engine tools/build_engine.cpp)
+    target_link_libraries(supervo_build_engine PRIVATE supervo_features)
+endif()
 add_executable(superVO superVO.cpp)
-target_link_libraries(superVO ${PROJECT_NAME})
-
-
-
-
-
+target_link_libraries(superVO PRIVATE supervo_runtime)
+add_executable(superVIO superVO.cpp)
+target_compile_definitions(superVIO PRIVATE SUPERVO_DEFAULT_IMU)
+target_link_libraries(superVIO PRIVATE supervo_runtime)

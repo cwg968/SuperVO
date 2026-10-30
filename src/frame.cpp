@@ -1,283 +1,170 @@
 #include <frame.h>
-#include <poseEstimation.h>
-#include <opencv2/core/eigen.hpp>
-#include <sys/time.h>
-
-namespace superVO
-{
-    frame::frame(){}
-
-    frame::frame(std::shared_ptr<keyFrame> keyFrame_, 
-                cv::Mat cameraMatrix, cv::Mat distCoeffs, 
-                bool ifUndistort): mKeyFrame(keyFrame_)
-    {   
-        mIfUndistort = ifUndistort;
-        mK = cameraMatrix.clone();
-        mD = distCoeffs.clone();
-        mK.convertTo(mK, CV_32FC1);
-        mD.convertTo(mD, CV_32FC1);
-    }
-
-    void frame::updateFrame(std::string frameFile, double timeStamp)
-    {
-        mSuccessSingle.clear();
-        mError.clear();
-        mRansacStatus.clear();
-        mPts3D.clear();
-        mPose.clear();
-        mfpts.clear();
-        mkFrame = mKeyFrame->getkeyFrame();
-
-        std::cout << std::endl;
-        std::cout << mInfoType << "----------------------------------------" << std::endl;
-        std::cout << mInfoType << "             Track a frame              " << std::endl;
-        std::cout << mInfoType << "----------------------------------------" << std::endl;
-        std::cout << mInfoType << "Keyframe: " << mKeyFrame->getImgFilePath() << std::endl;
-        std::cout << mInfoType << frameFile << std::endl;
-
-        mImgFile = frameFile;
-        mTimeStamp = timeStamp;
-
-        undistort(mIfUndistort);
-        LKTrack();
-        updatePoints();
-    }
-
-    void frame::updateFrame(cv::Mat &frameFile)
-    {
-        mSuccessSingle.clear();
-        mError.clear();
-        mRansacStatus.clear();
-        mPts3D.clear();
-        mPose.clear();
-        mfpts.clear();
-
-        std::cout << std::endl;
-        std::cout << mInfoType << "----------------------------------------" << std::endl;
-        std::cout << mInfoType << "             Track a frame              " << std::endl;
-        std::cout << mInfoType << "----------------------------------------" << std::endl;
-
-        if(frameFile.channels() == 1)
-        {
-            mFrameImg = gray2BGR(frameFile);
-            mDrawnImg = mFrameImg.clone();
+#include <opencv2/video/tracking.hpp>
+#include <opencv2/imgproc.hpp>
+#include <cmath>
+#include <stdexcept>
+#include <array>
+namespace superVO {
+namespace {
+PointTracks trackRaw(const cv::Mat& reference, const cv::Mat& current,
+                     const std::vector<cv::Point2f>& points,
+                     const std::vector<cv::Point2f>& predictions = {}) {
+    PointTracks result;
+    if (reference.empty() || current.empty() || reference.type() != CV_8UC1 ||
+        current.type() != CV_8UC1 || reference.size() != current.size())
+        throw std::runtime_error("LK expects equally sized uint8 grayscale images");
+    if (points.empty())
+        return result;
+    if (!predictions.empty() && predictions.size() != points.size())
+        throw std::invalid_argument("LK prediction count mismatch");
+    std::vector<cv::Point2f> forward, backward;
+    std::vector<uchar> validForward, validBackward;
+    std::vector<float> errorForward, errorBackward;
+    forward = predictions;
+    cv::calcOpticalFlowPyrLK(reference, current, points, forward, validForward, errorForward,
+                             {21, 21}, 3,
+                             {cv::TermCriteria::COUNT | cv::TermCriteria::EPS, 30, .01},
+                             predictions.empty() ? 0 : cv::OPTFLOW_USE_INITIAL_FLOW);
+    std::vector<cv::Point2f> candidates, origins;
+    std::vector<size_t> indices;
+    for (size_t i = 0; i < points.size(); ++i) {
+        const auto& p = forward[i];
+        if (validForward[i] && errorForward[i] < 30 && std::isfinite(p.x) && std::isfinite(p.y) &&
+            p.x >= 4 && p.y >= 4 && p.x < current.cols - 4 && p.y < current.rows - 4) {
+            candidates.push_back(p);
+            origins.push_back(points[i]);
+            indices.push_back(i);
         }
-        else
-        {
-            mFrameImg = frameFile.clone();
-            mDrawnImg = mFrameImg.clone();
+    }
+    if (candidates.empty())
+        return result;
+    backward = origins;
+    cv::calcOpticalFlowPyrLK(
+        current, reference, candidates, backward, validBackward, errorBackward, {21, 21}, 3,
+        {cv::TermCriteria::COUNT | cv::TermCriteria::EPS, 30, .01}, cv::OPTFLOW_USE_INITIAL_FLOW);
+    for (size_t i = 0; i < candidates.size(); ++i)
+        if (validBackward[i] && cv::norm(backward[i] - origins[i]) <= 1.0) {
+            result.pixels.push_back(candidates[i]);
+            result.sourceIndices.push_back(indices[i]);
         }
-        LKTrack();
-        updatePoints();
-
-        auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch());
-        mTimeStamp = now.count() / 1000.0;
-    }
-
-    void frame::undistort(bool ifUndistort)
-    {
-        mFrameImg = cv::imread(mImgFile, cv::IMREAD_COLOR);
-        // cv::resize(mFrameImg, mFrameImg, cv::Size(1240, 376), cv::INTER_NEAREST);
-
-        if(ifUndistort)
-        {
-            cv::Mat undistort, map1, map2;
-            // cv::undistort(mFrameImg, undistort, K, D, K);
-            cv::initUndistortRectifyMap(mK, mD, cv::Mat(),
-                                        cv::getOptimalNewCameraMatrix(mK, mD, cv::Size(mFrameImg.cols, mFrameImg.rows), 0, cv::Size(mFrameImg.cols, mFrameImg.rows), 0),
-                                        cv::Size(mFrameImg.cols, mFrameImg.rows), CV_16SC2, map1, map2);
-            cv::remap(mFrameImg, undistort, map1, map2, cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(0, 0, 0));
-            mFrameImg = undistort.clone();
-            mDrawnImg = mFrameImg.clone();
-        }
-        else
-        {
-            mDrawnImg = mFrameImg.clone();
-        }
-        
-    }
-
-    void frame::LKTrack()
-    {
-        cv::Mat frameImgGray, keyFrameImgGray;
-        cv::cvtColor(mFrameImg, frameImgGray, cv::COLOR_BGR2GRAY);
-        cv::cvtColor(mKeyFrame->mKeyFrameImg, keyFrameImgGray, cv::COLOR_BGR2GRAY);
-
-        cv::calcOpticalFlowPyrLK(keyFrameImgGray, frameImgGray, mKeyFrame->mkpts, mfpts, mSuccessSingle, mError);
-        cv::findFundamentalMat(mKeyFrame->mkpts, mfpts, mRansacStatus, cv::FM_RANSAC);
-    }
-
-    cv::Mat frame::gray2BGR(cv::Mat &src)
-    {
-        cv::Mat imageColor = cv::Mat::zeros(src.rows, src.cols, CV_8UC3);
-        std::vector<cv::Mat> channels;
-        for (int i=0;i<3;i++)
-        {
-            channels.push_back(src);
-        }
-        cv::merge(channels, imageColor);
-        return imageColor;
-    }
-
-    void frame::updateFramePose()
-    {
-        poseEstimation3d2d(mPts3D, mfpts, mRkf, mtkf, mK);
-        mRkf.convertTo(mRkf, CV_32FC1);
-        mtkf.convertTo(mtkf, CV_32FC1);
-        mTkf = (cv::Mat_<float>(3, 4) << mRkf.at<float>(0, 0), mRkf.at<float>(0, 1), mRkf.at<float>(0, 2), mtkf.at<float>(0),
-                                        mRkf.at<float>(1, 0), mRkf.at<float>(1, 1), mRkf.at<float>(1, 2), mtkf.at<float>(1),
-                                        mRkf.at<float>(2, 0), mRkf.at<float>(2, 1), mRkf.at<float>(2, 2), mtkf.at<float>(2));
-
-        Eigen::Matrix3d R_;
-        Eigen::Vector3d t_;
-        cv::cv2eigen(mRkf, R_);
-        cv::cv2eigen(mtkf, t_);
-
-        Eigen::Quaterniond q_relative(R_);
-        q_relative.normalize();
-        Eigen::Isometry3d se3(q_relative);
-        se3.pretranslate(t_);
-        mse3 = mKeyFrame->mse3 * se3; 
-        R_ << mse3.matrix()(0, 0), mse3.matrix()(0, 1), mse3.matrix()(0, 2),
-              mse3.matrix()(1, 0), mse3.matrix()(1, 1), mse3.matrix()(1, 2),
-              mse3.matrix()(2, 0), mse3.matrix()(2, 1), mse3.matrix()(2, 2);
-        t_ << mse3.matrix()(0, 3), mse3.matrix()(1, 3), mse3.matrix()(2, 3);
-
-        Eigen::Quaterniond q_absolute(R_);
-        q_absolute.normalize();
-
-        mPose.emplace_back(mTimeStamp);
-        mPose.emplace_back(t_(0));
-        mPose.emplace_back(t_(1));
-        mPose.emplace_back(t_(2));
-        mPose.emplace_back(q_absolute.coeffs()(0));
-        mPose.emplace_back(q_absolute.coeffs()(1));
-        mPose.emplace_back(q_absolute.coeffs()(2));
-        mPose.emplace_back(q_absolute.coeffs()(3));
-    }
-
-    void frame::updatePoints()
-    {
-        std::vector<mapPoint*> refPts3D = mKeyFrame->getPts3D();
-        // std::vector<cv::Point3f> refPts3D = mKeyFrame->getPts3D();
-        std::vector<cv::Point2f> goodfpts;
-        // draw keypoints
-        for(int i = 0; i < mfpts.size(); i++)
-        {
-            if(mSuccessSingle[i] && mRansacStatus[i])
-            {
-                mcountGood++;
-                goodfpts.emplace_back(mfpts[i]);
-                auto mapPose = refPts3D[i]->getPose();
-                mPts3D.emplace_back(cv::Point3f(mapPose.x(), mapPose.y(), mapPose.z()));
-
-                superPoint_ *newSuperPOint = new superPoint_(mkFrame, mfpts[i], true);
-                refPts3D[i]->addObservation(newSuperPOint);
-                
-                cv::circle(mDrawnImg, cv::Point2i(mfpts[i].x, mfpts[i].y), 1, cv::Scalar(0, 255, 0), 2);
-                // cv::circle(mDrawnImg, cam2pixel(refPts3D[i], mK), 1, cv::Scalar(255, 0, 0), 2);
-                // cv::line(mDrawnImg, cam2pixel(refPts3D[i], mK), cv::Point2i(mfpts[i].x, mfpts[i].y), cv::Scalar(0, 255, 0), 1);
-            }
-        }
-        mfpts = goodfpts;
-
-        std::cout << mInfoType << "Tracked pts: " << mfpts.size();
-    }
-
-    float frame::reproject()
-    {
-        std::vector<cv::Point3f> newPts3D;
-        int reprojectError = 0;
-        for(int i = 0; i < mPts3D.size(); i++)
-        {
-            cv::Mat x = (cv::Mat_<float>(3, 1) << mPts3D[i].x, mPts3D[i].y, mPts3D[i].z);
-            mRkf.convertTo(mRkf, CV_32FC1);
-            mtkf.convertTo(mtkf, CV_32FC1);
-            x = mRkf * x + mtkf;
-            cv::Point3f p3d(x.at<float>(0), x.at<float>(1), x.at<float>(2));
-            cv::Point2i p3dRepro = cam2pixel(p3d, mK);
-            int squareError = (p3dRepro.x - mfpts[i].x) * (p3dRepro.x - mfpts[i].x) + 
-                            (p3dRepro.y - mfpts[i].y) * (p3dRepro.y - mfpts[i].y);
-
-            if(squareError < mReprojectThresh)
-            {
-                reprojectError += squareError;
-                newPts3D.emplace_back(mPts3D[i]);
-                cv::circle(mDrawnImg, p3dRepro, 1, cv::Scalar(0, 0, 255), 2);
-            }
-        }
-        mPts3D = newPts3D;
-        std::cout << mInfoType << "Reprojected success pts3D: " << mPts3D.size();
-        return reprojectError;
-    }
-
-    std::vector<double> frame::getPose()
-    {
-        return mPose;
-    }
-
-    cv::Mat frame::getT()
-    {
-        return mTkf;
-    }
-
-    int frame::getGoodPtsNum()
-    {
-        return mcountGood;
-    }
-
-    int frame::getPtsNum()
-    {
-        return mfpts.size();
-    }
-
-    std::vector<cv::Point3f> frame::getPts3D()
-    {
-        return mPts3D;
-    }
-
-    Eigen::Isometry3d frame::getSE3()
-    {
-        return mse3;
-    }
-
-    cv::Mat frame::getSourceImage()
-    {
-        return mFrameImg;
-    }
-
-    cv::Mat frame::getDrawnImage()
-    {
-        return mDrawnImg;
-    }
-
-    inline cv::Point2f frame::pixel2cam(cv::Point2f &p, const cv::Mat &K) 
-    {
-    return cv::Point2f
-        (
-            (p.x - K.at<float>(0, 2)) / K.at<float>(0, 0),
-            (p.y - K.at<float>(1, 2)) / K.at<float>(1, 1)
-        );
-    }
-    inline cv::Point2i frame::cam2pixel(cv::Point3f &p3d, const cv::Mat &K)
-    {
-        return cv::Point2i
-        (
-            p3d.x / p3d.z * K.at<float>(0, 0) + K.at<float>(0, 2),
-            p3d.y / p3d.z * K.at<float>(1, 1) + K.at<float>(1, 2)
-        );
-    }
-
-    std::string frame::getImgFilePath()
-    {
-        return mImgFile;
-    }
-
-    frame::~frame()
-    {
-        std::cout << "frame: " << mImgFile << " delete!" << std::endl;
-    }
+    return result;
 }
 
+cv::Mat locallyNormalized(const cv::Mat& image) {
+    cv::Mat values, mean, variance, deviation, result;
+    image.convertTo(values, CV_32F);
+    cv::GaussianBlur(values, mean, {}, 8);
+    cv::GaussianBlur(values.mul(values), variance, {}, 8);
+    variance -= mean.mul(mean);
+    cv::max(variance, 25, variance);
+    cv::sqrt(variance, deviation);
+    values = (values - mean) / deviation;
+    values.convertTo(result, CV_8U, 32, 128);
+    return result;
+}
 
+std::array<double, 9> intensityQuantiles(const cv::Mat& image) {
+    std::array<size_t, 256> histogram{};
+    size_t count = 0;
+    for (int y = 0; y < image.rows; y += 4)
+        for (int x = 0; x < image.cols; x += 4) {
+            ++histogram[image.at<uchar>(y, x)];
+            ++count;
+        }
+    std::array<double, 9> result{};
+    size_t cumulative = 0, index = 0;
+    for (size_t value = 0; value < histogram.size() && index < result.size(); ++value) {
+        cumulative += histogram[value];
+        while (index < result.size() && cumulative * 10 >= (index + 1) * count)
+            result[index++] = value;
+    }
+    return result;
+}
+}
 
+PointTracks trackPoints(const cv::Mat& reference, const cv::Mat& current,
+                        const std::vector<cv::Point2f>& points, bool compensateExposure) {
+    auto original = trackRaw(reference, current, points);
+    if (!compensateExposure || points.empty())
+        return original;
+    const auto a = intensityQuantiles(reference), b = intensityQuantiles(current);
+    double sx = 0, sy = 0, sxx = 0, sxy = 0, change = 0;
+    int count = 0;
+    for (size_t i = 0; i < a.size(); ++i) {
+        // Saturated pixels cannot identify an exposure gain reliably.
+        if (a[i] <= 5 || a[i] >= 250 || b[i] <= 5 || b[i] >= 250)
+            continue;
+        sx += b[i];
+        sy += a[i];
+        sxx += b[i] * b[i];
+        sxy += a[i] * b[i];
+        change += std::abs(a[i] - b[i]);
+        ++count;
+    }
+    if (count < 3 || change / count < 8 || sxx - sx * sx / count < 100)
+        return original;
+    const double gain = (sxy - sx * sy / count) / (sxx - sx * sx / count),
+                 bias = (sy - gain * sx) / count;
+    if (!std::isfinite(gain) || !std::isfinite(bias) || gain < .25 || gain > 4 ||
+        std::abs(bias) > 100)
+        return original;
+    cv::Mat corrected;
+    current.convertTo(corrected, CV_8U, gain, bias);
+    auto candidate = trackRaw(reference, corrected, points);
+    if (candidate.pixels.size() <= original.pixels.size())
+        return original;
+    candidate.exposureCompensated = true;
+    candidate.exposureGain = gain;
+    candidate.exposureBias = bias;
+    return candidate;
+}
+
+std::vector<cv::Point2f> projectLandmarks(const std::vector<cv::Point3f>& points,
+                                          const cv::Matx44d& transform, const cv::Mat& K,
+                                          cv::Size size) {
+    if (K.type() != CV_64F || K.rows != 3 || K.cols != 3 || size.width <= 0 || size.height <= 0)
+        throw std::invalid_argument("Invalid projection calibration");
+    std::vector<cv::Point2f> result(points.size(), {NAN, NAN});
+    for (size_t i = 0; i < points.size(); ++i) {
+        const auto& p = points[i];
+        const auto q = transform * cv::Vec4d(p.x, p.y, p.z, 1);
+        if (!std::isfinite(q[0]) || !std::isfinite(q[1]) || !std::isfinite(q[2]) || q[2] <= 0)
+            continue;
+        const cv::Point2f pixel(K.at<double>(0, 0) * q[0] / q[2] + K.at<double>(0, 2),
+                                K.at<double>(1, 1) * q[1] / q[2] + K.at<double>(1, 2));
+        if (pixel.x >= 4 && pixel.y >= 4 && pixel.x < size.width - 4 && pixel.y < size.height - 4)
+            result[i] = pixel;
+    }
+    return result;
+}
+PointTracks trackGuidedPoints(const cv::Mat& reference, const cv::Mat& current,
+                              const std::vector<cv::Point2f>& points,
+                              const std::vector<cv::Point2f>& predictions, bool normalizeLocally) {
+    if (points.size() != predictions.size())
+        throw std::invalid_argument("LK prediction count mismatch");
+    if (reference.type() != CV_8UC1 || current.type() != CV_8UC1 || reference.empty() ||
+        current.empty() || reference.size() != current.size())
+        throw std::invalid_argument("Guided LK expects equally sized grayscale images");
+    std::vector<cv::Point2f> origins, seeds;
+    std::vector<size_t> indices;
+    for (size_t i = 0; i < points.size(); ++i) {
+        const auto p = points[i], q = predictions[i];
+        if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(q.x) ||
+            !std::isfinite(q.y) || p.x < 4 || p.y < 4 || p.x >= reference.cols - 4 ||
+            p.y >= reference.rows - 4 || q.x < 4 || q.y < 4 || q.x >= current.cols - 4 ||
+            q.y >= current.rows - 4)
+            continue;
+        origins.push_back(p);
+        seeds.push_back(q);
+        indices.push_back(i);
+    }
+    if (origins.empty())
+        return {};
+    auto tracks = trackRaw(normalizeLocally ? locallyNormalized(reference) : reference,
+                           normalizeLocally ? locallyNormalized(current) : current, origins, seeds);
+    for (auto& i : tracks.sourceIndices)
+        i = indices.at(i);
+    return tracks;
+}
+
+}

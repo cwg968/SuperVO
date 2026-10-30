@@ -1,79 +1,32 @@
-#ifndef FRAME_H
-#define FRAME_H
-
-#include <iostream>
-#include <opencv2/opencv.hpp>
-#include <Eigen/Core>
-#include <Eigen/Dense>
-#include <keyFrame.h>
-
-namespace superVO
-{
-    class frame
-    {
-        private:
-            std::shared_ptr<keyFrame> mKeyFrame;
-            std::vector<uchar> mSuccessSingle;
-            std::vector<float> mError;
-            std::vector<uchar> mRansacStatus;
-            Eigen::Quaterniond mq; 
-            std::vector<cv::Point3f> mPts3D;
-            std::vector<double> mPose;
-
-            cv::Mat mRkf; // The pose of this frame relative to the keyframe
-            cv::Mat mtkf; 
-            cv::Mat mTkf; //（mRkf|mtkf）
-            cv::Mat mFrameImg;
-            cv::Mat mDrawnImg;
-            Eigen::Isometry3d mse3;
-            std::string mImgFile;
-            std::vector<cv::Point2f> mfpts;
-            int mcountGood = 0;
-
-            float mReprojectThresh = 10;
-
-            std::string mInfoType = "[FRAME]-->";
-
-            cv::Mat mK;
-            cv::Mat mD;
-            cv::Mat mNormal;
-
-            double mTimeStamp;
-
-            bool mIfUndistort;
-
-            kFrame_* mkFrame;
-
-        private:
-            void updatePoints();
-            void LKTrack();
-            cv::Mat gray2BGR(cv::Mat &src);
-            inline cv::Point2i cam2pixel(cv::Point3f &p3d, const cv::Mat &K);
-            inline cv::Point2f pixel2cam(cv::Point2f &p, const cv::Mat &K);
-
-        public:
-            frame();
-
-            frame(std::shared_ptr<keyFrame> keyFrame_, 
-                cv::Mat cameraMatrix, cv::Mat distCoeffs, bool ifUndistort);
-
-            void updateFrame(std::string frameFile, double timeStamp);
-            void updateFrame(cv::Mat &frameFile);
-
-            void undistort(bool ifUndistort);
-            void updateFramePose();
-            float reproject();
-            int getGoodPtsNum();
-            int getPtsNum();
-            std::vector<cv::Point3f> getPts3D();
-            Eigen::Isometry3d getSE3();
-            cv::Mat getSourceImage();
-            cv::Mat getDrawnImage();
-            std::vector<double> getPose();
-            cv::Mat getT();
-            std::string getImgFilePath();
-            ~frame();
-    };
+#pragma once
+#include <opencv2/core.hpp>
+#include <vector>
+namespace superVO {
+// Missing observations must never be scored as measured image coordinates.
+struct StereoObservation {
+    cv::Point2f pixel[2];
+    bool valid[2] = {false, false};
+    bool operator==(const StereoObservation& other) const {
+        return pixel[0] == other.pixel[0] && pixel[1] == other.pixel[1] &&
+               valid[0] == other.valid[0] && valid[1] == other.valid[1];
+    }
+};
+struct PointTracks {
+    std::vector<cv::Point2f> pixels;
+    std::vector<size_t> sourceIndices;
+    bool exposureCompensated = false;
+    double exposureGain = 1.0, exposureBias = 0.0;
+};
+// All returned arrays share one correspondence order. Failed LK points never reach PnP.
+// Exposure compensation only proposes additional tracks; the caller must still validate geometry.
+PointTracks trackPoints(const cv::Mat& reference, const cv::Mat& current,
+                        const std::vector<cv::Point2f>& points, bool compensateExposure = false);
+// Predictions initialize a real image match; invalid projections are skipped.
+PointTracks trackGuidedPoints(const cv::Mat& reference, const cv::Mat& current,
+                              const std::vector<cv::Point2f>& points,
+                              const std::vector<cv::Point2f>& predictions,
+                              bool normalizeLocally = true);
+std::vector<cv::Point2f> projectLandmarks(const std::vector<cv::Point3f>& points,
+                                          const cv::Matx44d& cameraFromReference, const cv::Mat& K,
+                                          cv::Size size);
 }
-
-#endif

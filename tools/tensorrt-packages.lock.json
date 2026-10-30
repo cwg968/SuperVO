@@ -1,0 +1,61 @@
+{
+  "repository": "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/",
+  "packages": [
+    {
+      "Package": "libnvinfer10",
+      "Version": "10.13.3.9-1+cuda13.0",
+      "Filename": "./libnvinfer10_10.13.3.9-1+cuda13.0_amd64.deb",
+      "Size": "1494650846",
+      "SHA256": "bc99693fa55a62afc193b32b1eecb18006393ff2959d95a737683b6c238ab546"
+    },
+    {
+      "Package": "libnvinfer-headers-dev",
+      "Version": "10.13.3.9-1+cuda13.0",
+      "Filename": "./libnvinfer-headers-dev_10.13.3.9-1+cuda13.0_amd64.deb",
+      "Size": "111438",
+      "SHA256": "ddc5a6f2bc72e572141cf9f117604fe07ec0d01a59edfb411decdaa780dc4b08"
+    },
+    {
+      "Package": "libnvinfer-bin",
+      "Version": "10.13.3.9-1+cuda13.0",
+      "Filename": "./libnvinfer-bin_10.13.3.9-1+cuda13.0_amd64.deb",
+      "Size": "611750",
+      "SHA256": "c70757a42fa6bd55c76b4a37e89f35a250f376f6d772e44acd2f25c28d8891f9"
+    },
+    {
+      "Package": "libnvinfer-plugin10",
+      "Version": "10.13.3.9-1+cuda13.0",
+      "Filename": "./libnvinfer-plugin10_10.13.3.9-1+cuda13.0_amd64.deb",
+      "Size": "16832620",
+      "SHA256": "7a40cdf6618b7e25f716554d0804632677e46df3503e5d8dfa50c62940f8517f"
+    },
+    {
+      "Package": "libnvinfer-vc-plugin10",
+      "Version": "10.13.3.9-1+cuda13.0",
+      "Filename": "./libnvinfer-vc-plugin10_10.13.3.9-1+cuda13.0_amd64.deb",
+      "Size": "254510",
+      "SHA256": "919042f939d74033d020f2f2e41513f3d7e0fd8e5623ac8cd4dde8b8fc11dfb5"
+    },
+    {
+      "Package": "libnvinfer-lean10",
+      "Version": "10.13.3.9-1+cuda13.0",
+      "Filename": "./libnvinfer-lean10_10.13.3.9-1+cuda13.0_amd64.deb",
+      "Size": "15948560",
+      "SHA256": "3e379f3192ed2102644f88b359d969be3ec531c3e6455803b8eb2be95c58ea55"
+    },
+    {
+      "Package": "libnvinfer-dispatch10",
+      "Version": "10.13.3.9-1+cuda13.0",
+      "Filename": "./libnvinfer-dispatch10_10.13.3.9-1+cuda13.0_amd64.deb",
+      "Size": "214454",
+      "SHA256": "906178e991622f61871448a50098f69ceedbaa9e38104fc67054114842e9f8eb"
+    },
+    {
+      "Package": "libnvonnxparsers10",
+      "Version": "10.13.3.9-1+cuda13.0",
+      "Filename": "./libnvonnxparsers10_10.13.3.9-1+cuda13.0_amd64.deb",
+      "Size": "1437062",
+      "SHA256": "1d4d48eca9ba5eafb2c48e1f62b0631194ac43967577666ed24b36b95d64184e"
+    }
+  ]
+}
