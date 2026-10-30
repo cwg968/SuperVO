@@ -21,6 +21,8 @@ void help() {
         << "  --visual-ba none|local  Pure stereo local BA (without IMU)\n"
         << "  --ba-keyframes N --ba-landmarks N --ba-iterations N\n"
         << "  --loop-closure --loop-sync  Enable global loop correction (sync for deterministic evaluation)\n"
+        << "  --viewer             Show live left-image features and the sparse 3D odometry map\n"
+        << "  --viewer-no-wait      Close the viewer automatically when input processing ends\n"
         << "  --threads N --inspect --realtime --overwrite --help\n";
 }
 int integer(const std::string& value) {
@@ -41,6 +43,14 @@ int main(int argc, char** argv) {
             std::string arg = argv[i];
             if (arg == "--imu") {
                 o.imu = true;
+                continue;
+            }
+            if (arg == "--viewer") {
+                o.viewer.enabled = true;
+                continue;
+            }
+            if (arg == "--viewer-no-wait") {
+                o.viewer.waitAtEnd = false;
                 continue;
             }
             if (arg == "--loop-closure") {

@@ -44,6 +44,12 @@ void writePose(std::ostream& out, int64_t timestamp, const cv::Matx44d& pose) {
 }
 }
 int runOdometry(const RunOptions& o) {
+#ifndef SUPERVO_WITH_PANGOLIN
+    if (o.viewer.enabled)
+        throw std::invalid_argument("Viewer requires SUPERVO_WITH_PANGOLIN=ON");
+#endif
+    if (!o.viewer.enabled && !o.viewer.waitAtEnd)
+        throw std::invalid_argument("--viewer-no-wait requires --viewer");
 #ifndef SUPERVO_WITH_LOOP
     if (o.loop.enabled)
         throw std::invalid_argument("Loop closure requires SUPERVO_WITH_LOOP=ON");
@@ -238,9 +244,12 @@ int runOdometry(const RunOptions& o) {
              << "loop_exclusion_seconds" << o.loop.exclusionSeconds << "loop_candidates"
              << o.loop.candidates << "loop_min_inliers" << o.loop.minInliers
              << "loop_pixel_threshold" << o.loop.pixelThreshold;
+    meta << "viewer" << (o.viewer.enabled ? "pangolin" : "off") << "viewer_wait_at_end"
+         << int(o.viewer.waitAtEnd) << "viewer_map_frame" << "local_odometry_world_rectified_camera"
+         << "viewer_processing_ms_excludes_display" << 1;
     meta.release();
     auto tracking = o.tracking;
-    tracking.retainFeatures = o.loop.enabled;
+    tracking.retainFeatures = o.loop.enabled || o.viewer.enabled;
     Odometry estimator(calibration, tracking, detector,
                        imu ? std::optional<ImuCalibration>(imu->calibration()) : std::nullopt,
                        o.vio, o.stereoBa);
@@ -258,8 +267,25 @@ int runOdometry(const RunOptions& o) {
             throw std::runtime_error("Cannot open loop outputs");
     }
 #endif
+#ifdef SUPERVO_WITH_PANGOLIN
+    std::unique_ptr<Viewer> viewer;
+    if (o.viewer.enabled)
+        viewer = std::make_unique<Viewer>(calibration.intrinsics, dataset.size());
+#endif
     auto wallStart = Clock::now();
     for (int i = first; i < limit; ++i) {
+#ifdef SUPERVO_WITH_PANGOLIN
+        if (viewer) {
+            const auto waiting = Clock::now();
+            if (!viewer->waitUntilRunning()) {
+                std::cout
+                    << "Viewer closed; stopping input and retaining the processed trajectory\n";
+                break;
+            }
+            // Resuming a paused viewer must not fast-forward dataset playback.
+            wallStart += Clock::now() - waiting;
+        }
+#endif
         auto start = Clock::now();
         auto images = dataset.read(i);
         double ioTime = ms(start);
@@ -271,6 +297,41 @@ int runOdometry(const RunOptions& o) {
         const auto result = estimator.process({sample.timestampNs, images}, interval);
         const auto& d = result.diagnostics;
         double total = ms(start);
+#ifdef SUPERVO_WITH_PANGOLIN
+        if (viewer) {
+            ViewerFrame display;
+            display.frameIndex = i;
+            display.timestampNs = sample.timestampNs;
+            display.leftImage = images.left;
+            display.T_world_rect = result.T_world_rect;
+            if (result.T_world_rect)
+                display.geometry = estimator.visualization();
+            display.keyframe = d.key && result.T_world_rect.has_value();
+            display.inliers = int(d.inliers);
+            display.processingMs = total;
+            switch (result.status) {
+            case TrackingStatus::Tracking:
+                display.status = "TRACKING";
+                break;
+            case TrackingStatus::InitializingInertial:
+                display.status = "INITIALIZING";
+                break;
+            case TrackingStatus::PropagatingInertial:
+                display.status = "PROPAGATING";
+                break;
+            case TrackingStatus::StationaryInertial:
+                display.status = "STATIONARY";
+                break;
+            case TrackingStatus::InitializationFailed:
+                display.status = "INIT FAILED";
+                break;
+            case TrackingStatus::Lost:
+                display.status = "LOST";
+                break;
+            }
+            viewer->submit(std::move(display));
+        }
+#endif
         frames << sample.timestampNs << ','
                << (result.status == TrackingStatus::InitializingInertial  ? "INITIALIZING"
                    : result.status == TrackingStatus::StationaryInertial  ? "STATIONARY"
@@ -500,6 +561,10 @@ int runOdometry(const RunOptions& o) {
     }
     if (!trajectory || !frames)
         throw std::runtime_error("Writing trajectory failed");
+#ifdef SUPERVO_WITH_PANGOLIN
+    if (viewer)
+        viewer->finish(o.viewer.waitAtEnd);
+#endif
     return exitCode;
 }
 }

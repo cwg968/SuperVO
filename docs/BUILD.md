@@ -7,9 +7,22 @@
 | `SUPERVO_WITH_TENSORRT` | OFF | TensorRT 10.x 推理与引擎构建工具 |
 | `SUPERVO_WITH_BA` | OFF | 双目局部 BA 和双目惯性滑窗 |
 | `SUPERVO_WITH_LOOP` | OFF | 回环检索、几何验证和独立位姿图 |
+| `SUPERVO_WITH_PANGOLIN` | ON | Pangolin 左目特征与三维地图窗口 |
 
-标准 CPU 构建只需 C++17、CMake、Eigen 和 OpenCV。
+默认 CPU 构建需要 C++17、CMake、Eigen、OpenCV 和 Pangolin。
 启用 BA 或回环时 CMake 查找 Ceres >= 2.1。
+
+## Pangolin
+
+安装 Pangolin 后，CMake 从标准安装前缀自动查找。非标准位置可以指定：
+
+```sh
+cmake -S . -B build -DPangolin_DIR=/path/to/prefix/lib/cmake/Pangolin
+```
+
+运行时加 `--viewer`，需要可用的图形显示和 OpenGL 上下文。
+只使用 Pangolin 的 display、OpenGL 和变量面板目标，不依赖其视频或 Python 组件。
+纯无界面安装可使用 `-DSUPERVO_WITH_PANGOLIN=OFF`，运行时不传 `--viewer`。
 
 ## GPU 推理
 

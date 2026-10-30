@@ -7,6 +7,7 @@
 #include <windowEstimator.h>
 #include <vioOptions.h>
 #include <stereoBaEstimator.h>
+#include <visualizationSnapshot.h>
 #include <memory>
 #include <optional>
 namespace superVO {
@@ -48,6 +49,7 @@ class Odometry {
     Odometry& operator=(const Odometry&) = delete;
     TrackingResult process(const StereoFrame& frame, const std::vector<ImuSample>& imu = {});
     OdometrySnapshot snapshot() const;
+    VisualizationSnapshot visualization() const;
 
   private:
     struct Impl;

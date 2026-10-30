@@ -11,6 +11,7 @@
 #include <chrono>
 #include <stdexcept>
 #include <set>
+#include <map>
 namespace superVO {
 namespace {
 using Clock = std::chrono::steady_clock;
@@ -37,6 +38,7 @@ struct TrackingState {
     StationaryDetector stationary;
     TimestampNs lastStationaryUpdate = -1;
     int reliableReference = -1;
+    bool currentMeasurements = false;
     explicit TrackingState(int interval, std::optional<ImuCalibration> imu,
                            const StereoCalibration& camera, VioOptions vio, int minimum,
                            StereoBaOptions ba)
@@ -89,6 +91,37 @@ Odometry::~Odometry() = default;
 OdometrySnapshot Odometry::snapshot() const {
     const auto& s = impl_->state;
     return {s.frameIndex, s.timestampNs, s.predictor.lastPose(), s.active.geometry.ids};
+}
+VisualizationSnapshot Odometry::visualization() const {
+    const auto& s = impl_->state;
+    const auto& reference = s.active.geometry;
+    VisualizationSnapshot result;
+    result.timestampNs = s.timestampNs;
+    if (!s.frameIndex)
+        return result;
+    if (s.currentMeasurements) {
+        result.measuredLeft = cameraPixels(reference.observations, 0);
+        if (s.active.frameIndex == s.frameIndex - 1 && reference.features)
+            result.extractedLeft = reference.features->pixels;
+    }
+    std::map<LandmarkId, cv::Point3d> points;
+    for (size_t k = 0; k < reference.points.size(); ++k) {
+        const auto& p = reference.points[k];
+        const auto q = reference.T_world_camera * cv::Vec4d(p.x, p.y, p.z, 1);
+        points.emplace(reference.ids.at(k), cv::Point3d(q[0], q[1], q[2]));
+    }
+    if (s.filter && s.filter->initialized() && s.filter->usesPixels())
+        for (const auto& point : s.filter->optimizedLandmarks())
+            points[point.landmark] = point.world;
+#ifdef SUPERVO_WITH_BA
+    if (s.visualBa)
+        for (const auto& point : s.visualBa->landmarks())
+            points[point.landmark] = point.world;
+#endif
+    for (const auto& [id, point] : points)
+        if (id && std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z))
+            result.landmarks.push_back({id, point});
+    return result;
 }
 TrackingResult Odometry::process(const StereoFrame& frame, const std::vector<ImuSample>& imu) {
     return impl_->process(frame, imu);
@@ -447,6 +480,7 @@ TrackingResult Odometry::Impl::process(const StereoFrame& frame,
         if (d.valid || d.key)
             previous = {images.left.clone(), images.right.clone()};
         next.timestampNs = frame.timestampNs;
+        next.currentMeasurements = d.valid || d.key;
         ++next.frameIndex;
         state = std::move(next);
     } else

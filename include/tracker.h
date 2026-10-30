@@ -3,6 +3,7 @@
 #include <vioOptions.h>
 #include <loopGeometry.h>
 #include <stereoBaEstimator.h>
+#include <viewer.h>
 #include <filesystem>
 #include <string>
 namespace superVO {
@@ -19,6 +20,7 @@ struct RunOptions {
     StereoBaOptions stereoBa;
     LoopOptions loop;
     InferenceOptions inference;
+    ViewerOptions viewer;
     int maxFrames = 0, threads = 4;
     bool imu = false;
     bool inspect = false, realtime = false, overwrite = false;
