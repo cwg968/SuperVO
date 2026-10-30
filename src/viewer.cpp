@@ -56,14 +56,13 @@ cv::Mat featureImage(const ViewerFrame& frame) {
                 cv::circle(image, p, radius, color, 1, cv::LINE_AA);
     };
     if (frame.geometry.timestampNs == frame.timestampNs) {
-        draw(frame.geometry.extractedLeft, {255, 195, 55}, 4);
         draw(frame.geometry.measuredLeft, {40, 240, 120}, 2);
     }
     cv::rectangle(image, {0, 0}, {image.cols, 46}, {10, 16, 22}, cv::FILLED);
     cv::putText(image, "LEFT / " + frame.status + " / frame " + std::to_string(frame.frameIndex),
                 {10, 18}, cv::FONT_HERSHEY_SIMPLEX, .45, {225, 235, 245}, 1, cv::LINE_AA);
-    cv::putText(image, "green: measured tracks   amber: new SuperPoint", {10, 37},
-                cv::FONT_HERSHEY_SIMPLEX, .4, {190, 205, 220}, 1, cv::LINE_AA);
+    cv::putText(image, "green: current measured features", {10, 37}, cv::FONT_HERSHEY_SIMPLEX, .4,
+                {190, 205, 220}, 1, cv::LINE_AA);
     return image;
 }
 }
@@ -178,13 +177,7 @@ struct Viewer::Impl {
                     }
                     glLineWidth(1.f);
                     glBegin(GL_LINES);
-                    glColor3f(.14f, .18f, .22f);
-                    for (int i = -10; i <= 10; ++i) {
-                        glVertex3d(i, -10, 0);
-                        glVertex3d(i, 10, 0);
-                        glVertex3d(-10, i, 0);
-                        glVertex3d(10, i, 0);
-                    }
+                    // These axes define the odometry frame, not an estimated ground plane.
                     glColor3f(1, .2f, .2f);
                     glVertex3d(0, 0, 0);
                     glVertex3d(1, 0, 0);
