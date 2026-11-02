@@ -3,6 +3,16 @@
 基于 SuperPoint 的 C++17 双目视觉与视觉惯性里程计，支持 EuRoC、KITTI 和 TUM VI，
 提供 CPU / TensorRT 推理、Pangolin 可视化和轨迹输出。
 
+## 效果展示
+
+![EuRoC 室内特征跟踪与建图](assets/euroc-room.gif)
+
+| EuRoC 机库建图与环绕视角 | TUM VI 手持运动跟踪 |
+|---|---|
+| ![EuRoC 机库](assets/euroc-machine-hall.gif) | ![TUM VI 手持运动](assets/tumvi-handheld.gif) |
+
+真实 GPU 运行录屏，按 2 倍录屏速度播放；[素材说明](assets/README.md)。
+
 ## 依赖与编译
 
 - CMake >= 3.18、C++17 编译器、Eigen >= 3.3、OpenCV 4。
@@ -40,6 +50,7 @@ build/superVIO --dataset /path/to/EuRoC/sequence \
 
 窗口显示左目图像、绿色实测特征点、相机轨迹和稀疏三维地图。
 鼠标拖动、滚轮调整视角，面板可暂停或切换相机跟随；输入结束后关闭窗口退出。
+快捷键：`P` 简洁展示、`F` 跟随相机、`O` 地图总览、`R` 环绕视角、空格暂停。
 不需要显示时省略 `--viewer --realtime`。
 
 ### CPU 双目视觉
