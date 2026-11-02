@@ -1,5 +1,6 @@
 #include <viewer.h>
 #include "viewerScene.h"
+#include "viewerStyle.h"
 #include <pangolin/display/display.h>
 #include <pangolin/display/view.h>
 #include <pangolin/display/widgets.h>
@@ -58,11 +59,6 @@ cv::Mat featureImage(const ViewerFrame& frame) {
     if (frame.geometry.timestampNs == frame.timestampNs) {
         draw(frame.geometry.measuredLeft, {40, 240, 120}, 2);
     }
-    cv::rectangle(image, {0, 0}, {image.cols, 46}, {10, 16, 22}, cv::FILLED);
-    cv::putText(image, "LEFT / " + frame.status + " / frame " + std::to_string(frame.frameIndex),
-                {10, 18}, cv::FONT_HERSHEY_SIMPLEX, .45, {225, 235, 245}, 1, cv::LINE_AA);
-    cv::putText(image, "green: current measured features", {10, 37}, cv::FONT_HERSHEY_SIMPLEX, .4,
-                {190, 205, 220}, 1, cv::LINE_AA);
     return image;
 }
 }
@@ -107,9 +103,13 @@ struct Viewer::Impl {
             created = true;
             {
                 glEnable(GL_DEPTH_TEST);
-                glClearColor(.055f, .07f, .09f, 1.f);
-                pangolin::CreatePanel("ui").SetBounds(0, 1, 0, pangolin::Attach::Pix(190));
+                glClearColor(.045f, .06f, .08f, 1.f);
+                auto& panel =
+                    pangolin::CreatePanel("ui").SetBounds(0, 1, 0, pangolin::Attach::Pix(190));
                 pangolin::Var<bool> follow("ui.Follow camera", true, true);
+                pangolin::Var<bool> presentation("ui.Presentation", false, true);
+                pangolin::Var<bool> overview("ui.Map overview", false, true);
+                pangolin::Var<bool> orbit("ui.Orbit view", false, true);
                 pangolin::Var<bool> showPoints("ui.Map points", true, true);
                 pangolin::Var<bool> showKeys("ui.Keyframes", true, true);
                 pangolin::Var<bool> showPath("ui.Trajectory", true, true);
@@ -119,20 +119,42 @@ struct Viewer::Impl {
                 pangolin::Var<int> frameNumber("ui.Frame", 0), pointCount("ui.Map size", 0);
                 pangolin::Var<int> inliers("ui.Inliers", 0);
                 pangolin::Var<double> trackingMs("ui.Process ms", 0.);
-                const auto home = pangolin::ModelViewLookAt(0, -3, -8, 0, 0, 1, pangolin::AxisNegY);
+                pangolin::RegisterKeyPressCallback('p',
+                                                   [&] { presentation = !bool(presentation); });
+                pangolin::RegisterKeyPressCallback('f', [&] {
+                    follow = true;
+                    overview = false;
+                    orbit = false;
+                });
+                pangolin::RegisterKeyPressCallback('o', [&] {
+                    overview = !bool(overview);
+                    orbit = false;
+                    follow = false;
+                });
+                pangolin::RegisterKeyPressCallback('r', [&] {
+                    orbit = !bool(orbit);
+                    overview = true;
+                    follow = false;
+                });
+                pangolin::RegisterKeyPressCallback(' ', [&] { pause = !bool(pause); });
+                const auto home =
+                    pangolin::ModelViewLookAt(0, -1.2, -3.5, 0, 0, 1, pangolin::AxisNegY);
                 pangolin::OpenGlRenderState camera(
                     pangolin::ProjectionMatrix(1024, 768, 500, 500, 512, 384, .05, 1000), home);
                 pangolin::Handler3D handler(camera);
-                auto& imageView =
-                    pangolin::CreateDisplay().SetBounds(0, 1, pangolin::Attach::Pix(190), .51,
-                                                        double(imageSize.width) / imageSize.height);
-                auto& mapView =
-                    pangolin::CreateDisplay().SetBounds(0, 1, .51, 1).SetHandler(&handler);
+                auto& imageView = pangolin::CreateDisplay();
+                auto& mapView = pangolin::CreateDisplay().SetHandler(&handler);
                 pangolin::GlTexture texture(imageSize.width, imageSize.height, GL_RGB, false, 0,
                                             GL_RGB, GL_UNSIGNED_BYTE);
                 ViewerScene scene;
                 std::shared_ptr<const ViewerFrame> frame;
                 bool hasImage = false;
+                std::optional<TimestampNs> firstTimestamp;
+                cv::Vec3d center(0, 0, 0);
+                double radius = 2;
+                bool fitted = false;
+                bool wasFollow = true, wasOverview = false, wasOrbit = false;
+                const auto orbitStart = std::chrono::steady_clock::now();
                 open = true;
                 ready.set_value();
                 announced = true;
@@ -148,6 +170,8 @@ struct Viewer::Impl {
                     }
                     if (serial) {
                         scene.update(*frame);
+                        if (!firstTimestamp)
+                            firstTimestamp = frame->timestampNs;
                         const auto image = featureImage(*frame);
                         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
                         texture.Upload(image.data, GL_RGB, GL_UNSIGNED_BYTE);
@@ -159,6 +183,20 @@ struct Viewer::Impl {
                         pointCount = int(scene.landmarks.size());
                     }
                     status = finished ? "Finished" : frame ? frame->status : "Starting";
+                    if (bool(follow) && !wasFollow) {
+                        overview = false;
+                        orbit = false;
+                    } else if (bool(orbit) && !wasOrbit) {
+                        overview = true;
+                        follow = false;
+                    } else if (bool(overview) && !wasOverview) {
+                        follow = false;
+                    }
+                    if (!bool(overview))
+                        orbit = false;
+                    wasFollow = bool(follow);
+                    wasOverview = bool(overview);
+                    wasOrbit = bool(orbit);
                     {
                         std::lock_guard<std::mutex> lock(mutex);
                         paused = bool(pause);
@@ -167,11 +205,39 @@ struct Viewer::Impl {
                     if (bool(reset)) {
                         camera.SetModelViewMatrix(home);
                         follow = true;
+                        overview = false;
+                        orbit = false;
                         reset = false;
                     }
+                    panel.Show(!bool(presentation));
+                    const int left = bool(presentation) ? 16 : 206;
+                    imageView.SetBounds(pangolin::Attach::Pix(80), pangolin::Attach::Pix(-100),
+                                        pangolin::Attach::Pix(left), .51,
+                                        double(imageSize.width) / imageSize.height);
+                    mapView.SetBounds(pangolin::Attach::Pix(70), pangolin::Attach::Pix(-90), .52,
+                                      pangolin::Attach::Pix(-16));
+                    glDisable(GL_SCISSOR_TEST);
                     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
                     mapView.Activate(camera);
-                    if (bool(follow) && frame && frame->T_world_rect) {
+                    if (bool(overview) && frame && frame->T_world_rect) {
+                        if (serial || !fitted) {
+                            const auto bounds = viewerStyle::bounds(scene);
+                            center = fitted ? center * .92 + bounds.first * .08 : bounds.first;
+                            radius = fitted ? radius * .92 + bounds.second * .08 : bounds.second;
+                            fitted = true;
+                        }
+                        const double angle =
+                            bool(orbit)
+                                ? .22 * std::chrono::duration<double>(tick - orbitStart).count()
+                                : .35;
+                        const auto eye =
+                            center +
+                            cv::Vec3d(std::sin(angle) * 1.9, -.8, -std::cos(angle) * 1.9) * radius;
+                        camera.SetModelViewMatrix(
+                            pangolin::ModelViewLookAt(eye[0], eye[1], eye[2], center[0], center[1],
+                                                      center[2], pangolin::AxisNegY));
+                        mapView.Activate(camera);
+                    } else if (bool(follow) && frame && frame->T_world_rect) {
                         camera.Follow(glPose(*frame->T_world_rect));
                         mapView.Activate(camera);
                     }
@@ -190,7 +256,7 @@ struct Viewer::Impl {
                     glEnd();
                     if (bool(showPoints)) {
                         glPointSize(2.f);
-                        glColor3f(.48f, .58f, .67f);
+                        glColor3f(.25f, .64f, .82f);
                         glBegin(GL_POINTS);
                         for (const auto& [id, p] : scene.landmarks) {
                             (void)id;
@@ -207,7 +273,7 @@ struct Viewer::Impl {
                         }
                     }
                     if (bool(showPath)) {
-                        glLineWidth(2.f);
+                        glLineWidth(3.f);
                         glColor3f(1.f, .65f, .2f);
                         glBegin(GL_LINE_STRIP);
                         for (const auto& p : scene.trajectory)
@@ -232,6 +298,11 @@ struct Viewer::Impl {
                         texture.RenderToViewportFlipY();
                         glEnable(GL_DEPTH_TEST);
                     }
+                    viewerStyle::hud(frame.get(), scene, bool(presentation), bool(overview),
+                                     bool(orbit), bool(finished),
+                                     frame && firstTimestamp
+                                         ? (frame->timestampNs - *firstTimestamp) * 1e-9
+                                         : 0);
                     pangolin::FinishFrame();
                     if (serial) {
                         std::lock_guard<std::mutex> lock(mutex);
